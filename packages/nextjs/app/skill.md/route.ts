@@ -11,7 +11,7 @@ A 2/3 multisig wallet on Base mainnet. Offchain signature gathering — no gas t
 - Cold wallet: \`0x90eF2A9211A3E7CE788561E5af54C76B0Fa3aEd0\`
 
 ## Contract
-- Address: \`[DEPLOYED_ADDRESS]\` ← update after deploy
+- Address: \`0x2581032c2073085625B3e451ed5B8fe43D1253be\`
 - Chain: Base mainnet (chainId: 8453)
 - RPC: \`https://base-mainnet.g.alchemy.com/v2/8GVG8WjDs-sGFRr6Rm839\`
 
