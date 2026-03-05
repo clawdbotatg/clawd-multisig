@@ -3191,6 +3191,7 @@ __metadata:
     next-nprogress-bar: ~2.3.13
     next-themes: ~0.3.0
     postcss: ~8.4.45
+    postgres: ^3.4.8
     prettier: ~3.5.3
     qrcode.react: ~4.0.1
     react: ~19.2.3
@@ -12997,6 +12998,13 @@ __metadata:
     picocolors: ^1.1.1
     source-map-js: ^1.2.1
   checksum: eb5d6cbdca24f50399aafa5d2bea489e4caee4c563ea1edd5a2485bc5f84e9ceef3febf170272bc83a99c31d23a316ad179213e853f34c2a7a8ffa534559d63a
+  languageName: node
+  linkType: hard
+
+"postgres@npm:^3.4.8":
+  version: 3.4.8
+  resolution: "postgres@npm:3.4.8"
+  checksum: 65458ca2e3f3157effe73ca173b7f86898cb0d26f2c5e74894bf0e3a13b8d9227c28923057c350de020b29bbb6f1bfc0854c6ea1989daae21500b18c885bcae5
   languageName: node
   linkType: hard
 

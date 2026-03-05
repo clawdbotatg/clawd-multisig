@@ -1,80 +1,105 @@
 "use client";
 
 import Link from "next/link";
-import { Address } from "@scaffold-ui/components";
+import { Address, Balance } from "@scaffold-ui/components";
 import type { NextPage } from "next";
-import { hardhat } from "viem/chains";
-import { useAccount } from "wagmi";
-import { BugAntIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
+import { useScaffoldReadContract } from "~~/hooks/scaffold-eth";
 import { useTargetNetwork } from "~~/hooks/scaffold-eth";
+import { useDeployedContractInfo } from "~~/hooks/scaffold-eth/useDeployedContractInfo";
+
+const SIGNERS = [
+  { role: "🤖 AI Agent (ClawdGut)", address: "0x09defC9E6ffc5e41F42e0D50512EEf9354523E0E" as const },
+  { role: "🔥 Hot wallet (atg.eth)", address: "0x34aA3F359A9D614239015126635CE7732c18fDF3" as const },
+  { role: "🧊 Cold wallet", address: "0x90eF2A9211A3E7CE788561E5af54C76B0Fa3aEd0" as const },
+];
 
 const Home: NextPage = () => {
-  const { address: connectedAddress } = useAccount();
   const { targetNetwork } = useTargetNetwork();
+  const { data: contractInfo } = useDeployedContractInfo({ contractName: "MetaMultiSigWallet" });
+
+  const { data: signaturesRequired } = useScaffoldReadContract({
+    contractName: "MetaMultiSigWallet",
+    functionName: "signaturesRequired",
+  });
+
+  const { data: nonce } = useScaffoldReadContract({
+    contractName: "MetaMultiSigWallet",
+    functionName: "nonce",
+  });
 
   return (
-    <>
-      <div className="flex items-center flex-col grow pt-10">
-        <div className="px-5">
-          <h1 className="text-center">
-            <span className="block text-2xl mb-2">Welcome to</span>
-            <span className="block text-4xl font-bold">Scaffold-ETH 2</span>
-          </h1>
-          <div className="flex justify-center items-center space-x-2 flex-col">
-            <p className="my-2 font-medium">Connected Address:</p>
-            <Address
-              address={connectedAddress}
-              chain={targetNetwork}
-              blockExplorerAddressLink={
-                targetNetwork.id === hardhat.id ? `/blockexplorer/address/${connectedAddress}` : undefined
-              }
-            />
-          </div>
+    <div className="flex items-center flex-col grow pt-10">
+      <div className="px-5 w-full max-w-3xl">
+        <h1 className="text-center">
+          <span className="block text-2xl mb-2">🔐</span>
+          <span className="block text-4xl font-bold">clawd-multisig</span>
+          <span className="block text-lg mt-2 text-base-content/70">AI-agent-powered 2/3 multisig on Base</span>
+        </h1>
 
-          <p className="text-center text-lg">
-            Get started by editing{" "}
-            <code className="italic bg-base-300 text-base font-bold max-w-full break-words break-all inline-block">
-              packages/nextjs/app/page.tsx
-            </code>
-          </p>
-          <p className="text-center text-lg">
-            Edit your smart contract{" "}
-            <code className="italic bg-base-300 text-base font-bold max-w-full break-words break-all inline-block">
-              YourContract.sol
-            </code>{" "}
-            in{" "}
-            <code className="italic bg-base-300 text-base font-bold max-w-full break-words break-all inline-block">
-              packages/hardhat/contracts
-            </code>
-          </p>
+        {/* Contract Info */}
+        <div className="card bg-base-100 shadow-xl mt-8">
+          <div className="card-body">
+            <h2 className="card-title">📋 Contract Info</h2>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold">Address:</span>
+                {contractInfo?.address ? (
+                  <Address address={contractInfo.address} chain={targetNetwork} />
+                ) : (
+                  <span className="text-base-content/50">Not deployed yet</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold">Balance:</span>
+                {contractInfo?.address ? (
+                  <Balance address={contractInfo.address} chain={targetNetwork} />
+                ) : (
+                  <span>—</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold">Signatures Required:</span>
+                <span className="badge badge-primary">
+                  {signaturesRequired !== undefined ? signaturesRequired.toString() : "—"} of 3
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold">Current Nonce:</span>
+                <span className="badge badge-ghost">{nonce !== undefined ? nonce.toString() : "—"}</span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="grow bg-base-300 w-full mt-16 px-8 py-12">
-          <div className="flex justify-center items-center gap-12 flex-col md:flex-row">
-            <div className="flex flex-col bg-base-100 px-10 py-10 text-center items-center max-w-xs rounded-3xl">
-              <BugAntIcon className="h-8 w-8 fill-secondary" />
-              <p>
-                Tinker with your smart contract using the{" "}
-                <Link href="/debug" passHref className="link">
-                  Debug Contracts
-                </Link>{" "}
-                tab.
-              </p>
-            </div>
-            <div className="flex flex-col bg-base-100 px-10 py-10 text-center items-center max-w-xs rounded-3xl">
-              <MagnifyingGlassIcon className="h-8 w-8 fill-secondary" />
-              <p>
-                Explore your local transactions with the{" "}
-                <Link href="/blockexplorer" passHref className="link">
-                  Block Explorer
-                </Link>{" "}
-                tab.
-              </p>
+        {/* Signers */}
+        <div className="card bg-base-100 shadow-xl mt-6">
+          <div className="card-body">
+            <h2 className="card-title">👥 Signers</h2>
+            <div className="flex flex-col gap-3">
+              {SIGNERS.map(signer => (
+                <div key={signer.address} className="flex items-center gap-3 p-2 bg-base-200 rounded-lg">
+                  <span className="text-sm font-medium min-w-[180px]">{signer.role}</span>
+                  <Address address={signer.address} chain={targetNetwork} />
+                </div>
+              ))}
             </div>
           </div>
+        </div>
+
+        {/* Navigation */}
+        <div className="flex justify-center gap-4 mt-8 mb-12">
+          <Link href="/transactions" className="btn btn-primary btn-lg">
+            📋 Transactions
+          </Link>
+          <Link href="/create" className="btn btn-secondary btn-lg">
+            ➕ Create TX
+          </Link>
+          <Link href="/skill.md" className="btn btn-outline btn-lg" target="_blank">
+            📖 SKILL.md
+          </Link>
         </div>
       </div>
-    </>
+    </div>
   );
 };
 
