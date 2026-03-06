@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { encodePacked, keccak256 } from "viem";
 
-// TODO: Update this after deploying the contract
-const CONTRACT_ADDRESS = "0x2581032c2073085625B3e451ed5B8fe43D1253be" as `0x${string}`;
+const CONTRACT_ADDRESS = "0x17CbCc995593D443c6014562075BD3ecA24d31e0" as `0x${string}`;
 const CHAIN_ID = 8453n;
 
 // GET /api/transactions/hash — compute the transaction hash matching the contract's getTransactionHash
