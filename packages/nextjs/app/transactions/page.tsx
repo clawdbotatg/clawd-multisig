@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Address } from "@scaffold-ui/components";
+import { useFetchNativeCurrencyPrice } from "@scaffold-ui/hooks";
 import type { NextPage } from "next";
 import { formatEther, recoverMessageAddress } from "viem";
 import { useAccount, useSignMessage } from "wagmi";
+import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 import { useScaffoldWriteContract } from "~~/hooks/scaffold-eth";
 import { useScaffoldReadContract } from "~~/hooks/scaffold-eth";
 import { useTargetNetwork } from "~~/hooks/scaffold-eth";
@@ -28,12 +30,24 @@ type Transaction = {
   created_at: string;
 };
 
+const getErrorMessage = (e: unknown): string => {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (msg.includes("Not Self")) return "Only the multisig itself can call this";
+  if (msg.includes("not owner")) return "You are not an owner of this multisig";
+  if (msg.includes("not enough valid signatures")) return "Not enough valid signatures (need 2 of 3)";
+  if (msg.includes("duplicate or unordered")) return "Duplicate or out-of-order signatures";
+  if (msg.includes("tx failed")) return "Transaction execution failed on-chain";
+  if (msg.includes("User rejected")) return "Transaction rejected in wallet";
+  return msg.length > 100 ? "Transaction failed — check console for details" : msg;
+};
+
 const TransactionsPage: NextPage = () => {
   const { targetNetwork } = useTargetNetwork();
-  const { address: connectedAddress } = useAccount();
+  const { address: connectedAddress, connector } = useAccount();
   const { signMessageAsync } = useSignMessage();
   const { data: contractInfo } = useDeployedContractInfo({ contractName: "MetaMultiSigWallet" });
   const { writeContractAsync, isPending } = useScaffoldWriteContract("MetaMultiSigWallet");
+  const { price: nativeCurrencyPrice } = useFetchNativeCurrencyPrice();
 
   const { data: signaturesRequired } = useScaffoldReadContract({
     contractName: "MetaMultiSigWallet",
@@ -42,6 +56,38 @@ const TransactionsPage: NextPage = () => {
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const openWallet = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (!isMobile || window.ethereum) return;
+    const allIds = [connector?.id, connector?.name, localStorage.getItem("wagmi.recentConnectorId")]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    const schemes: [string[], string][] = [
+      [["rainbow"], "rainbow://"],
+      [["metamask"], "metamask://"],
+      [["coinbase", "cbwallet"], "cbwallet://"],
+      [["trust"], "trust://"],
+      [["phantom"], "phantom://"],
+    ];
+    for (const [keywords, scheme] of schemes) {
+      if (keywords.some(k => allIds.includes(k))) {
+        window.location.href = scheme;
+        return;
+      }
+    }
+  }, [connector]);
+
+  const writeAndOpen = useCallback(
+    <T,>(writeFn: () => Promise<T>): Promise<T> => {
+      const promise = writeFn();
+      setTimeout(openWallet, 2000);
+      return promise;
+    },
+    [openWallet],
+  );
 
   const fetchTransactions = useCallback(async () => {
     try {
@@ -73,7 +119,7 @@ const TransactionsPage: NextPage = () => {
       const { hash } = await hashRes.json();
 
       // Sign the hash as raw bytes (personal_sign / EIP-191)
-      const sig = await signMessageAsync({ message: { raw: hash as `0x${string}` } });
+      const sig = await writeAndOpen(() => signMessageAsync({ message: { raw: hash as `0x${string}` } }));
 
       // POST signature
       const res = await fetch(`/api/transactions/${tx.id}/sign`, {
@@ -90,8 +136,7 @@ const TransactionsPage: NextPage = () => {
       notification.success("Signature added!");
       fetchTransactions();
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to sign";
-      notification.error(msg);
+      notification.error(getErrorMessage(e));
     }
   };
 
@@ -120,10 +165,12 @@ const TransactionsPage: NextPage = () => {
       signerSigPairs.sort((a, b) => (a.signer < b.signer ? -1 : 1));
       const sortedSigs = signerSigPairs.map(p => p.sig as `0x${string}`);
 
-      await writeContractAsync({
-        functionName: "executeTransaction",
-        args: [tx.to_address as `0x${string}`, BigInt(tx.value), tx.data as `0x${string}`, sortedSigs],
-      });
+      await writeAndOpen(() =>
+        writeContractAsync({
+          functionName: "executeTransaction",
+          args: [tx.to_address as `0x${string}`, BigInt(tx.value), tx.data as `0x${string}`, sortedSigs],
+        }),
+      );
 
       // Mark as executed
       await fetch(`/api/transactions/${tx.id}`, { method: "DELETE" });
@@ -131,12 +178,17 @@ const TransactionsPage: NextPage = () => {
       notification.success("Transaction executed!");
       fetchTransactions();
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to execute";
-      notification.error(msg);
+      notification.error(getErrorMessage(e));
     }
   };
 
   const requiredSigs = signaturesRequired ? Number(signaturesRequired) : 2;
+
+  const formatUsd = (valueWei: string) => {
+    if (!nativeCurrencyPrice || nativeCurrencyPrice <= 0) return "";
+    const ethValue = parseFloat(formatEther(BigInt(valueWei)));
+    return ` (~$${(ethValue * nativeCurrencyPrice).toFixed(2)})`;
+  };
 
   return (
     <div className="flex items-center flex-col grow pt-10">
@@ -162,6 +214,7 @@ const TransactionsPage: NextPage = () => {
                     </div>
                     <div>
                       <span className="font-semibold">Value:</span> {formatEther(BigInt(tx.value))} ETH
+                      {formatUsd(tx.value)}
                     </div>
                     <div>
                       <span className="font-semibold">Nonce:</span> {tx.nonce}
@@ -192,13 +245,25 @@ const TransactionsPage: NextPage = () => {
                     )}
                   </div>
                   <div className="card-actions justify-end mt-4">
-                    <button className="btn btn-primary btn-sm" onClick={() => handleSign(tx)}>
-                      ✍️ Sign
-                    </button>
-                    {tx.signatures.length >= requiredSigs && (
-                      <button className="btn btn-success btn-sm" onClick={() => handleExecute(tx)} disabled={isPending}>
-                        {isPending ? <span className="loading loading-spinner loading-xs"></span> : "🚀 Execute"}
-                      </button>
+                    {!connectedAddress ? (
+                      <div className="flex justify-center mt-4">
+                        <RainbowKitCustomConnectButton />
+                      </div>
+                    ) : (
+                      <>
+                        <button className="btn btn-primary btn-sm" onClick={() => handleSign(tx)}>
+                          ✍️ Sign
+                        </button>
+                        {tx.signatures.length >= requiredSigs && (
+                          <button
+                            className="btn btn-success btn-sm"
+                            onClick={() => handleExecute(tx)}
+                            disabled={isPending}
+                          >
+                            {isPending ? <span className="loading loading-spinner loading-xs"></span> : "🚀 Execute"}
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>

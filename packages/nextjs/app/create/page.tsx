@@ -1,16 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
+import { AddressInput } from "@scaffold-ui/components";
 import type { NextPage } from "next";
 import { parseEther } from "viem";
 import { useAccount, useSignMessage } from "wagmi";
+import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 import { useScaffoldReadContract } from "~~/hooks/scaffold-eth";
 import { notification } from "~~/utils/scaffold-eth";
 
+const getErrorMessage = (e: unknown): string => {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (msg.includes("Not Self")) return "Only the multisig itself can call this";
+  if (msg.includes("not owner")) return "You are not an owner of this multisig";
+  if (msg.includes("not enough valid signatures")) return "Not enough valid signatures (need 2 of 3)";
+  if (msg.includes("duplicate or unordered")) return "Duplicate or out-of-order signatures";
+  if (msg.includes("tx failed")) return "Transaction execution failed on-chain";
+  if (msg.includes("User rejected")) return "Transaction rejected in wallet";
+  return msg.length > 100 ? "Transaction failed — check console for details" : msg;
+};
+
 const CreatePage: NextPage = () => {
   const router = useRouter();
-  const { address: connectedAddress } = useAccount();
+  const { address: connectedAddress, connector } = useAccount();
   const { signMessageAsync } = useSignMessage();
 
   const { data: currentNonce } = useScaffoldReadContract({
@@ -23,6 +36,38 @@ const CreatePage: NextPage = () => {
   const [data, setData] = useState("0x");
   const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  const openWallet = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (!isMobile || window.ethereum) return;
+    const allIds = [connector?.id, connector?.name, localStorage.getItem("wagmi.recentConnectorId")]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    const schemes: [string[], string][] = [
+      [["rainbow"], "rainbow://"],
+      [["metamask"], "metamask://"],
+      [["coinbase", "cbwallet"], "cbwallet://"],
+      [["trust"], "trust://"],
+      [["phantom"], "phantom://"],
+    ];
+    for (const [keywords, scheme] of schemes) {
+      if (keywords.some(k => allIds.includes(k))) {
+        window.location.href = scheme;
+        return;
+      }
+    }
+  }, [connector]);
+
+  const writeAndOpen = useCallback(
+    <T,>(writeFn: () => Promise<T>): Promise<T> => {
+      const promise = writeFn();
+      setTimeout(openWallet, 2000);
+      return promise;
+    },
+    [openWallet],
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,7 +95,7 @@ const CreatePage: NextPage = () => {
       const { hash } = await hashRes.json();
 
       // Sign the hash (personal_sign / EIP-191)
-      const sig = await signMessageAsync({ message: { raw: hash as `0x${string}` } });
+      const sig = await writeAndOpen(() => signMessageAsync({ message: { raw: hash as `0x${string}` } }));
 
       // POST new transaction
       const res = await fetch("/api/transactions", {
@@ -75,8 +120,7 @@ const CreatePage: NextPage = () => {
       notification.success("Transaction proposed!");
       router.push("/transactions");
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to create transaction";
-      notification.error(msg);
+      notification.error(getErrorMessage(e));
     } finally {
       setSubmitting(false);
     }
@@ -99,14 +143,7 @@ const CreatePage: NextPage = () => {
                 <label className="label">
                   <span className="label-text font-semibold">To Address</span>
                 </label>
-                <input
-                  type="text"
-                  placeholder="0x..."
-                  className="input input-bordered w-full"
-                  value={to}
-                  onChange={e => setTo(e.target.value)}
-                  required
-                />
+                <AddressInput value={to} onChange={setTo} placeholder="0x... or ENS name" />
               </div>
 
               <div className="form-control">
@@ -148,9 +185,19 @@ const CreatePage: NextPage = () => {
                 />
               </div>
 
-              <button type="submit" className="btn btn-primary btn-lg mt-2" disabled={submitting || !connectedAddress}>
-                {submitting ? <span className="loading loading-spinner loading-sm"></span> : "🚀 Propose & Sign"}
-              </button>
+              {!connectedAddress ? (
+                <div className="flex justify-center mt-4">
+                  <RainbowKitCustomConnectButton />
+                </div>
+              ) : (
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-lg mt-2"
+                  disabled={submitting || !connectedAddress}
+                >
+                  {submitting ? <span className="loading loading-spinner loading-sm"></span> : "🚀 Propose & Sign"}
+                </button>
+              )}
             </form>
           </div>
         </div>
