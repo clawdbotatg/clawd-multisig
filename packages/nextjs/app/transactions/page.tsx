@@ -4,8 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Address } from "@scaffold-ui/components";
 import { useFetchNativeCurrencyPrice } from "@scaffold-ui/hooks";
 import type { NextPage } from "next";
-import { formatEther, recoverMessageAddress } from "viem";
-import { useAccount, useSignMessage } from "wagmi";
+import { formatEther, hexToBytes, recoverMessageAddress } from "viem";
+import { useAccount, useWalletClient } from "wagmi";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 import { useScaffoldWriteContract } from "~~/hooks/scaffold-eth";
 import { useScaffoldReadContract } from "~~/hooks/scaffold-eth";
@@ -44,7 +44,7 @@ const getErrorMessage = (e: unknown): string => {
 const TransactionsPage: NextPage = () => {
   const { targetNetwork } = useTargetNetwork();
   const { address: connectedAddress, connector } = useAccount();
-  const { signMessageAsync } = useSignMessage();
+  const { data: walletClient } = useWalletClient();
   const { data: contractInfo } = useDeployedContractInfo({ contractName: "MetaMultiSigWallet" });
   const { writeContractAsync, isPending } = useScaffoldWriteContract("MetaMultiSigWallet");
   const { price: nativeCurrencyPrice } = useFetchNativeCurrencyPrice();
@@ -112,15 +112,22 @@ const TransactionsPage: NextPage = () => {
     }
 
     try {
-      // Get the hash from the API
+      if (!walletClient) {
+        notification.error("Wallet not connected");
+        return;
+      }
+
+      // Get the raw hash from the API (no EIP-191 prefix)
       const hashRes = await fetch(
         `/api/transactions/hash?nonce=${tx.nonce}&to=${tx.to_address}&value=${tx.value}&data=${tx.data}`,
       );
-      const { hash } = await hashRes.json();
+      const { rawHash } = await hashRes.json();
 
-      // Sign the pre-prefixed hash as raw bytes (no additional prefix added by wallet)
-      // The API returns the EIP-191 prefixed hash; signing it raw matches what the contract recovers
-      const sig = await writeAndOpen(() => signMessageAsync({ message: { raw: hash as `0x${string}` } }));
+      // Sign raw bytes as Uint8Array — personal_sign adds "\x19Ethereum Signed Message:\n32" prefix
+      // which matches the contract's toEthSignedMessageHash(rawHash) in recover()
+      const sig = await writeAndOpen(() =>
+        walletClient.signMessage({ message: { raw: hexToBytes(rawHash as `0x${string}`) } }),
+      );
 
       // POST signature
       const res = await fetch(`/api/transactions/${tx.id}/sign`, {
@@ -148,15 +155,16 @@ const TransactionsPage: NextPage = () => {
       // Sort signatures by recovered signer address ascending
       const signerSigPairs: { signer: string; sig: string }[] = [];
 
-      for (const s of tx.signatures) {
-        // Get the hash from API to recover the address
-        const hashRes = await fetch(
-          `/api/transactions/hash?nonce=${tx.nonce}&to=${tx.to_address}&value=${tx.value}&data=${tx.data}`,
-        );
-        const { hash } = await hashRes.json();
+      // Get the raw hash from API once (same for all sigs)
+      const hashRes = await fetch(
+        `/api/transactions/hash?nonce=${tx.nonce}&to=${tx.to_address}&value=${tx.value}&data=${tx.data}`,
+      );
+      const { rawHash } = await hashRes.json();
 
+      for (const s of tx.signatures) {
+        // Recover using raw bytes — recoverMessageAddress will apply EIP-191 prefix internally
         const recovered = await recoverMessageAddress({
-          message: { raw: hash as `0x${string}` },
+          message: { raw: hexToBytes(rawHash as `0x${string}`) },
           signature: s.sig as `0x${string}`,
         });
         signerSigPairs.push({ signer: recovered.toLowerCase(), sig: s.sig });

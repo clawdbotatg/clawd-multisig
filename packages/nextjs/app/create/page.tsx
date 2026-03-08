@@ -4,8 +4,8 @@ import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AddressInput } from "@scaffold-ui/components";
 import type { NextPage } from "next";
-import { parseEther } from "viem";
-import { useAccount, useSignMessage } from "wagmi";
+import { hexToBytes, parseEther } from "viem";
+import { useAccount, useWalletClient } from "wagmi";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 import { useScaffoldReadContract } from "~~/hooks/scaffold-eth";
 import { notification } from "~~/utils/scaffold-eth";
@@ -24,7 +24,7 @@ const getErrorMessage = (e: unknown): string => {
 const CreatePage: NextPage = () => {
   const router = useRouter();
   const { address: connectedAddress, connector } = useAccount();
-  const { signMessageAsync } = useSignMessage();
+  const { data: walletClient } = useWalletClient();
 
   const { data: currentNonce } = useScaffoldReadContract({
     contractName: "MetaMultiSigWallet",
@@ -88,14 +88,22 @@ const CreatePage: NextPage = () => {
       const nonce = Number(currentNonce);
       const valueWei = value ? parseEther(value).toString() : "0";
 
-      // Get the hash from API
+      if (!walletClient) {
+        notification.error("Wallet not connected");
+        return;
+      }
+
+      // Get the raw hash from API (no EIP-191 prefix)
       const hashRes = await fetch(
         `/api/transactions/hash?nonce=${nonce}&to=${to}&value=${valueWei}&data=${data || "0x"}`,
       );
-      const { hash } = await hashRes.json();
+      const { rawHash } = await hashRes.json();
 
-      // Sign the hash (personal_sign / EIP-191)
-      const sig = await writeAndOpen(() => signMessageAsync({ message: { raw: hash as `0x${string}` } }));
+      // Sign raw bytes as Uint8Array — personal_sign adds "\x19Ethereum Signed Message:\n32" prefix
+      // which matches the contract's toEthSignedMessageHash(rawHash) in recover()
+      const sig = await writeAndOpen(() =>
+        walletClient.signMessage({ message: { raw: hexToBytes(rawHash as `0x${string}`) } }),
+      );
 
       // POST new transaction
       const res = await fetch("/api/transactions", {
