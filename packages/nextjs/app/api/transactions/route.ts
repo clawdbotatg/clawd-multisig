@@ -11,7 +11,12 @@ export async function GET() {
       WHERE status = 'pending'
       ORDER BY created_at DESC
     `;
-    return NextResponse.json({ transactions });
+    // Normalize signatures: handle legacy double-encoded JSON strings
+    const normalized = transactions.map((tx: any) => ({
+      ...tx,
+      signatures: typeof tx.signatures === "string" ? JSON.parse(tx.signatures) : tx.signatures,
+    }));
+    return NextResponse.json({ transactions: normalized });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 500 });
@@ -30,11 +35,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing required fields: to, description, signer, sig" }, { status: 400 });
     }
 
-    const signatures = JSON.stringify([{ signer, sig }]);
-
     const result = await db`
       INSERT INTO transactions (nonce, to_address, value, data, description, signatures)
-      VALUES (${nonce ?? 0}, ${to}, ${value ?? "0"}, ${data ?? "0x"}, ${description}, ${signatures})
+      VALUES (${nonce ?? 0}, ${to}, ${value ?? "0"}, ${data ?? "0x"}, ${description}, ${db.json([{ signer, sig }])})
       RETURNING *
     `;
 

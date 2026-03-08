@@ -21,7 +21,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     const tx = txs[0];
-    const signatures = tx.signatures as { signer: string; sig: string }[];
+    // Normalize: handle legacy double-encoded JSON strings
+    const signatures: { signer: string; sig: string }[] =
+      typeof tx.signatures === "string" ? JSON.parse(tx.signatures) : tx.signatures;
 
     // Check for duplicate signer
     const alreadySigned = signatures.some((s: { signer: string }) => s.signer.toLowerCase() === signer.toLowerCase());
@@ -34,7 +36,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     await db`
       UPDATE transactions
-      SET signatures = ${JSON.stringify(updatedSignatures)}
+      SET signatures = ${db.json(updatedSignatures)}
       WHERE id = ${id}
     `;
 
