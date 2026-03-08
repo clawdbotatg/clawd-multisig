@@ -122,13 +122,25 @@ const TransactionsPage: NextPage = () => {
         tx.data as `0x${string}`,
       ])) as `0x${string}`;
 
-      const sig = await writeAndOpen(() => walletClient.signMessage({ message: { raw: hash } }));
+      // Our contract's recover() converts bytes32 to hex string then does
+      // toEthSignedMessageHash(bytes(hexString)) — so we must sign the hex
+      // string as a plain text message (NOT raw bytes).
+      const sig = await writeAndOpen(() => walletClient.signMessage({ message: hash }));
 
-      // Verify on-chain before storing
+      // Verify on-chain that the signature recovers to an owner
+      const signer = await metaMultiSigWallet.read.recover([hash, sig as `0x${string}`]);
+      const isOwnerResult = await metaMultiSigWallet.read.isOwner([signer as string]);
+
+      if (!isOwnerResult) {
+        notification.error("Recovered signer is not an owner of this multisig");
+        return;
+      }
+
+      // Store signature with the on-chain recovered signer address
       const res = await fetch(`/api/transactions/${tx.id}/sign`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signer: connectedAddress, sig }),
+        body: JSON.stringify({ signer: signer as string, sig }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -146,15 +158,38 @@ const TransactionsPage: NextPage = () => {
     if (!metaMultiSigWallet) return;
 
     try {
-      // Sort sigs by stored signer address ascending (matches contract duplicate guard)
-      const signerSigPairs = tx.signatures.map(s => ({ signer: s.signer.toLowerCase(), sig: s.sig }));
-      signerSigPairs.sort((a, b) => (a.signer < b.signer ? -1 : 1));
-      const sortedSigs = signerSigPairs.map(p => p.sig as `0x${string}`);
+      // Recompute hash from contract to sort signatures by recovered address
+      const hash = (await metaMultiSigWallet.read.getTransactionHash([
+        BigInt(tx.nonce),
+        tx.to_address as `0x${string}`,
+        BigInt(tx.value),
+        tx.data as `0x${string}`,
+      ])) as `0x${string}`;
+
+      // Recover signer from each signature on-chain (like SE2 challenge does)
+      const sigList: { signature: `0x${string}`; signer: `0x${string}` }[] = [];
+      for (const s of tx.signatures) {
+        const recovered = (await metaMultiSigWallet.read.recover([hash, s.sig as `0x${string}`])) as `0x${string}`;
+        sigList.push({ signature: s.sig as `0x${string}`, signer: recovered });
+      }
+
+      // Sort by recovered address ascending (matches contract's duplicateGuard)
+      sigList.sort((a, b) => (BigInt(a.signer) > BigInt(b.signer) ? 1 : -1));
+
+      // Deduplicate
+      const finalSigs: `0x${string}`[] = [];
+      const used: Record<string, boolean> = {};
+      for (const s of sigList) {
+        if (!used[s.signature]) {
+          finalSigs.push(s.signature);
+        }
+        used[s.signature] = true;
+      }
 
       await writeAndOpen(() =>
         writeContractAsync({
           functionName: "executeTransaction",
-          args: [tx.to_address as `0x${string}`, BigInt(tx.value), tx.data as `0x${string}`, sortedSigs],
+          args: [tx.to_address as `0x${string}`, BigInt(tx.value), tx.data as `0x${string}`, finalSigs],
         }),
       );
 

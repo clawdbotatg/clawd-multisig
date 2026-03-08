@@ -4,10 +4,10 @@ import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AddressInput } from "@scaffold-ui/components";
 import type { NextPage } from "next";
-import { hexToBytes, parseEther } from "viem";
+import { parseEther } from "viem";
 import { useAccount, useWalletClient } from "wagmi";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
-import { useScaffoldReadContract } from "~~/hooks/scaffold-eth";
+import { useScaffoldContract, useScaffoldReadContract } from "~~/hooks/scaffold-eth";
 import { notification } from "~~/utils/scaffold-eth";
 
 const getErrorMessage = (e: unknown): string => {
@@ -25,6 +25,10 @@ const CreatePage: NextPage = () => {
   const router = useRouter();
   const { address: connectedAddress, connector } = useAccount();
   const { data: walletClient } = useWalletClient();
+  const { data: metaMultiSigWallet } = useScaffoldContract({
+    contractName: "MetaMultiSigWallet",
+    walletClient,
+  });
 
   const { data: currentNonce } = useScaffoldReadContract({
     contractName: "MetaMultiSigWallet",
@@ -88,24 +92,34 @@ const CreatePage: NextPage = () => {
       const nonce = Number(currentNonce);
       const valueWei = value ? parseEther(value).toString() : "0";
 
-      if (!walletClient) {
+      if (!walletClient || !metaMultiSigWallet) {
         notification.error("Wallet not connected");
         return;
       }
 
-      // Get the raw hash from API (no EIP-191 prefix)
-      const hashRes = await fetch(
-        `/api/transactions/hash?nonce=${nonce}&to=${to}&value=${valueWei}&data=${data || "0x"}`,
-      );
-      const { rawHash } = await hashRes.json();
+      // Get hash directly from contract — matches SE2 challenge approach
+      const hash = (await metaMultiSigWallet.read.getTransactionHash([
+        BigInt(nonce),
+        to as `0x${string}`,
+        BigInt(valueWei),
+        (data || "0x") as `0x${string}`,
+      ])) as `0x${string}`;
 
-      // Sign raw bytes as Uint8Array — personal_sign adds "\x19Ethereum Signed Message:\n32" prefix
-      // which matches the contract's toEthSignedMessageHash(rawHash) in recover()
-      const sig = await writeAndOpen(() =>
-        walletClient.signMessage({ message: { raw: hexToBytes(rawHash as `0x${string}`) } }),
-      );
+      // Our contract's recover() converts bytes32 to hex string then does
+      // toEthSignedMessageHash(bytes(hexString)) — so we must sign the hex
+      // string as a plain text message (NOT raw bytes).
+      const sig = await writeAndOpen(() => walletClient.signMessage({ message: hash }));
 
-      // POST new transaction
+      // Verify on-chain that the signature recovers to an owner
+      const signer = await metaMultiSigWallet.read.recover([hash, sig as `0x${string}`]);
+      const isOwnerResult = await metaMultiSigWallet.read.isOwner([signer as string]);
+
+      if (!isOwnerResult) {
+        notification.error("Recovered signer is not an owner of this multisig");
+        return;
+      }
+
+      // POST new transaction with on-chain recovered signer
       const res = await fetch("/api/transactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -115,7 +129,7 @@ const CreatePage: NextPage = () => {
           value: valueWei,
           data: data || "0x",
           description,
-          signer: connectedAddress,
+          signer: signer as string,
           sig,
         }),
       });
