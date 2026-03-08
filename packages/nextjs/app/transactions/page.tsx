@@ -6,6 +6,7 @@ import { useFetchNativeCurrencyPrice } from "@scaffold-ui/hooks";
 import type { NextPage } from "next";
 import { formatEther } from "viem";
 import { useAccount, useWalletClient } from "wagmi";
+import { VaultPositions } from "~~/components/VaultPositions";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 import { useScaffoldContract, useScaffoldWriteContract } from "~~/hooks/scaffold-eth";
 import { useScaffoldReadContract } from "~~/hooks/scaffold-eth";
@@ -212,6 +213,8 @@ const TransactionsPage: NextPage = () => {
   return (
     <div className="flex items-center flex-col grow pt-10">
       <div className="px-5 w-full max-w-4xl">
+        <VaultPositions />
+
         <h1 className="text-3xl font-bold text-center mb-8">📋 Pending Transactions</h1>
 
         {loading ? (
