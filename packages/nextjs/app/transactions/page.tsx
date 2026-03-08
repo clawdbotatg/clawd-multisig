@@ -118,7 +118,8 @@ const TransactionsPage: NextPage = () => {
       );
       const { hash } = await hashRes.json();
 
-      // Sign the hash as raw bytes (personal_sign / EIP-191)
+      // Sign the pre-prefixed hash as raw bytes (no additional prefix added by wallet)
+      // The API returns the EIP-191 prefixed hash; signing it raw matches what the contract recovers
       const sig = await writeAndOpen(() => signMessageAsync({ message: { raw: hash as `0x${string}` } }));
 
       // POST signature
