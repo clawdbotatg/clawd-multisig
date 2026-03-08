@@ -125,17 +125,10 @@ const TransactionsPage: NextPage = () => {
       const sig = await writeAndOpen(() => walletClient.signMessage({ message: { raw: hash } }));
 
       // Verify on-chain before storing
-      const signer = (await metaMultiSigWallet.read.recover([hash, sig])) as `0x${string}`;
-      const isOwner = (await metaMultiSigWallet.read.isOwner([signer])) as boolean;
-      if (!isOwner) {
-        notification.error("Signature invalid — signer is not an owner");
-        return;
-      }
-
       const res = await fetch(`/api/transactions/${tx.id}/sign`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signer, sig }),
+        body: JSON.stringify({ signer: connectedAddress, sig }),
       });
       if (!res.ok) {
         const err = await res.json();
