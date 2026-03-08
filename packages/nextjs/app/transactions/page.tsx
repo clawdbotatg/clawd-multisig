@@ -4,13 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import { Address } from "@scaffold-ui/components";
 import { useFetchNativeCurrencyPrice } from "@scaffold-ui/hooks";
 import type { NextPage } from "next";
-import { formatEther, hexToBytes, recoverMessageAddress } from "viem";
+import { formatEther } from "viem";
 import { useAccount, useWalletClient } from "wagmi";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
-import { useScaffoldWriteContract } from "~~/hooks/scaffold-eth";
+import { useScaffoldContract, useScaffoldWriteContract } from "~~/hooks/scaffold-eth";
 import { useScaffoldReadContract } from "~~/hooks/scaffold-eth";
 import { useTargetNetwork } from "~~/hooks/scaffold-eth";
-import { useDeployedContractInfo } from "~~/hooks/scaffold-eth/useDeployedContractInfo";
 import { notification } from "~~/utils/scaffold-eth";
 
 type Signature = {
@@ -45,7 +44,10 @@ const TransactionsPage: NextPage = () => {
   const { targetNetwork } = useTargetNetwork();
   const { address: connectedAddress, connector } = useAccount();
   const { data: walletClient } = useWalletClient();
-  const { data: contractInfo } = useDeployedContractInfo({ contractName: "MetaMultiSigWallet" });
+  const { data: metaMultiSigWallet } = useScaffoldContract({
+    contractName: "MetaMultiSigWallet",
+    walletClient,
+  });
   const { writeContractAsync, isPending } = useScaffoldWriteContract("MetaMultiSigWallet");
   const { price: nativeCurrencyPrice } = useFetchNativeCurrencyPrice();
 
@@ -106,36 +108,35 @@ const TransactionsPage: NextPage = () => {
   }, [fetchTransactions]);
 
   const handleSign = async (tx: Transaction) => {
-    if (!connectedAddress) {
+    if (!connectedAddress || !walletClient || !metaMultiSigWallet) {
       notification.error("Please connect your wallet");
       return;
     }
 
     try {
-      if (!walletClient) {
-        notification.error("Wallet not connected");
+      // Get hash directly from contract — no API, no mismatch possible
+      const hash = (await metaMultiSigWallet.read.getTransactionHash([
+        BigInt(tx.nonce),
+        tx.to_address as `0x${string}`,
+        BigInt(tx.value),
+        tx.data as `0x${string}`,
+      ])) as `0x${string}`;
+
+      const sig = await writeAndOpen(() => walletClient.signMessage({ message: { raw: hash } }));
+
+      // Verify on-chain before storing
+      const signer = (await metaMultiSigWallet.read.recover([hash, sig])) as `0x${string}`;
+      const isOwner = (await metaMultiSigWallet.read.isOwner([signer])) as boolean;
+      if (!isOwner) {
+        notification.error("Signature invalid — signer is not an owner");
         return;
       }
 
-      // Get the raw hash from the API (no EIP-191 prefix)
-      const hashRes = await fetch(
-        `/api/transactions/hash?nonce=${tx.nonce}&to=${tx.to_address}&value=${tx.value}&data=${tx.data}`,
-      );
-      const { rawHash } = await hashRes.json();
-
-      // Sign raw bytes as Uint8Array — personal_sign adds "\x19Ethereum Signed Message:\n32" prefix
-      // which matches the contract's toEthSignedMessageHash(rawHash) in recover()
-      const sig = await writeAndOpen(() =>
-        walletClient.signMessage({ message: { raw: hexToBytes(rawHash as `0x${string}`) } }),
-      );
-
-      // POST signature
       const res = await fetch(`/api/transactions/${tx.id}/sign`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signer: connectedAddress, sig }),
+        body: JSON.stringify({ signer, sig }),
       });
-
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error || "Failed to sign");
@@ -149,28 +150,22 @@ const TransactionsPage: NextPage = () => {
   };
 
   const handleExecute = async (tx: Transaction) => {
-    if (!contractInfo?.address) return;
+    if (!metaMultiSigWallet) return;
 
     try {
-      // Sort signatures by recovered signer address ascending
+      const hash = (await metaMultiSigWallet.read.getTransactionHash([
+        BigInt(tx.nonce),
+        tx.to_address as `0x${string}`,
+        BigInt(tx.value),
+        tx.data as `0x${string}`,
+      ])) as `0x${string}`;
+
+      // Sort sigs by recovered address ascending (matches contract duplicate guard)
       const signerSigPairs: { signer: string; sig: string }[] = [];
-
-      // Get the raw hash from API once (same for all sigs)
-      const hashRes = await fetch(
-        `/api/transactions/hash?nonce=${tx.nonce}&to=${tx.to_address}&value=${tx.value}&data=${tx.data}`,
-      );
-      const { rawHash } = await hashRes.json();
-
       for (const s of tx.signatures) {
-        // Recover using raw bytes — recoverMessageAddress will apply EIP-191 prefix internally
-        const recovered = await recoverMessageAddress({
-          message: { raw: hexToBytes(rawHash as `0x${string}`) },
-          signature: s.sig as `0x${string}`,
-        });
+        const recovered = (await metaMultiSigWallet.read.recover([hash, s.sig as `0x${string}`])) as string;
         signerSigPairs.push({ signer: recovered.toLowerCase(), sig: s.sig });
       }
-
-      // Sort by recovered address ascending
       signerSigPairs.sort((a, b) => (a.signer < b.signer ? -1 : 1));
       const sortedSigs = signerSigPairs.map(p => p.sig as `0x${string}`);
 
@@ -181,9 +176,7 @@ const TransactionsPage: NextPage = () => {
         }),
       );
 
-      // Mark as executed
       await fetch(`/api/transactions/${tx.id}`, { method: "DELETE" });
-
       notification.success("Transaction executed!");
       fetchTransactions();
     } catch (e: unknown) {

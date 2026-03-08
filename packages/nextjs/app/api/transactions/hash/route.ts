@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
       ),
     );
 
-    return NextResponse.json({ hash: rawHash, rawHash });
+    return NextResponse.json({ hash: rawHash });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 500 });
