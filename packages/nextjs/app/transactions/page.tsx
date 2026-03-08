@@ -146,19 +146,8 @@ const TransactionsPage: NextPage = () => {
     if (!metaMultiSigWallet) return;
 
     try {
-      const hash = (await metaMultiSigWallet.read.getTransactionHash([
-        BigInt(tx.nonce),
-        tx.to_address as `0x${string}`,
-        BigInt(tx.value),
-        tx.data as `0x${string}`,
-      ])) as `0x${string}`;
-
-      // Sort sigs by recovered address ascending (matches contract duplicate guard)
-      const signerSigPairs: { signer: string; sig: string }[] = [];
-      for (const s of tx.signatures) {
-        const recovered = (await metaMultiSigWallet.read.recover([hash, s.sig as `0x${string}`])) as string;
-        signerSigPairs.push({ signer: recovered.toLowerCase(), sig: s.sig });
-      }
+      // Sort sigs by stored signer address ascending (matches contract duplicate guard)
+      const signerSigPairs = tx.signatures.map(s => ({ signer: s.signer.toLowerCase(), sig: s.sig }));
       signerSigPairs.sort((a, b) => (a.signer < b.signer ? -1 : 1));
       const sortedSigs = signerSigPairs.map(p => p.sig as `0x${string}`);
 
