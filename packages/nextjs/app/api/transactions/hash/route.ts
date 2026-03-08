@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { encodePacked, keccak256 } from "viem";
 
-const CONTRACT_ADDRESS = "0x17CbCc995593D443c6014562075BD3ecA24d31e0" as `0x${string}`;
+const CONTRACT_ADDRESS = "0x82858790DfFB82377d5ABc337c7f0679e6AD58e5" as `0x${string}`;
 const CHAIN_ID = 8453n;
 
 // GET /api/transactions/hash — compute the transaction hash matching the contract's getTransactionHash
 // Returns the raw hash (no EIP-191 prefix). The wallet's personal_sign will add the
-// "\x19Ethereum Signed Message:\n32" prefix, which matches the contract's toEthSignedMessageHash().
+// "\x19Ethereum Signed Message:\n66" prefix (signing the 66-char hex string), which matches
+// the contract's recover() that converts bytes32 to hex string before toEthSignedMessageHash().
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);

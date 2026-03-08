@@ -7,7 +7,7 @@ import { GenericContractsDeclaration } from "~~/utils/scaffold-eth/contract";
 const deployedContracts = {
   8453: {
     MetaMultiSigWallet: {
-      address: "0x17CbCc995593D443c6014562075BD3ecA24d31e0",
+      address: "0x82858790DfFB82377d5ABc337c7f0679e6AD58e5",
       abi: [
         {
           type: "constructor",

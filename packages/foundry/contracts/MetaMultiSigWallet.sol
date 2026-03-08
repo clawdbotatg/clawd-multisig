@@ -98,7 +98,23 @@ contract MetaMultiSigWallet {
     }
 
     function recover(bytes32 _hash, bytes memory _signature) public pure returns (address) {
-        return ECDSA.recover(MessageHashUtils.toEthSignedMessageHash(_hash), _signature);
+        // Rainbow wallet signs via personal_sign treating the hash as a 66-char UTF-8 hex string
+        // producing: keccak256("\x19Ethereum Signed Message:\n66" + "0xe3469b...")
+        // So we convert bytes32 to its hex string and use toEthSignedMessageHash(bytes)
+        string memory hashHex = _toHexString(_hash);
+        return ECDSA.recover(MessageHashUtils.toEthSignedMessageHash(bytes(hashHex)), _signature);
+    }
+
+    function _toHexString(bytes32 value) internal pure returns (string memory) {
+        bytes memory alphabet = "0123456789abcdef";
+        bytes memory str = new bytes(66);
+        str[0] = "0";
+        str[1] = "x";
+        for (uint256 i = 0; i < 32; i++) {
+            str[2 + i * 2] = alphabet[uint8(value[i] >> 4)];
+            str[3 + i * 2] = alphabet[uint8(value[i] & 0x0f)];
+        }
+        return string(str);
     }
 
     receive() external payable {

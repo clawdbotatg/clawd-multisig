@@ -11,7 +11,7 @@ A 2/3 multisig wallet on Base mainnet. Offchain signature gathering — no gas t
 - Cold wallet: \`0x90eF2A9211A3E7CE788561E5af54C76B0Fa3aEd0\`
 
 ## Contract
-- Address: \`0x17CbCc995593D443c6014562075BD3ecA24d31e0\`
+- Address: \`0x82858790DfFB82377d5ABc337c7f0679e6AD58e5\`
 - Chain: Base mainnet (chainId: 8453)
 - RPC: \`https://base-mainnet.g.alchemy.com/v2/8GVG8WjDs-sGFRr6Rm839\`
 
@@ -26,8 +26,12 @@ Signatures MUST be submitted in ascending signer address order. The contract use
 2. Compute tx hash via API:
    \`GET /api/transactions/hash?nonce=<n>&to=<addr>&value=<wei>&data=<hex>\`
 
-3. Sign the hash (EIP-191 personal_sign) with AI agent key:
-   \`cast wallet sign --private-key <key> <hash>\`
+3. Sign the hash with AI agent key (two-step process because cast decodes 0x-prefixed hex):
+   a. Compute eth-signed-message hash: \`python3 -c "from eth_hash.auto import keccak; h=keccak(b'\\x19Ethereum Signed Message:\\n66' + b'<hash>'); print('0x'+h.hex())"\`
+   b. Sign the pre-hashed result: \`cast wallet sign --no-hash --private-key <key> <eth_signed_msg_hash>\`
+   
+   The contract converts bytes32 to its 66-char hex string then applies toEthSignedMessageHash(bytes).
+   This matches how Rainbow wallet signs via personal_sign (treating the hash as UTF-8 text).
 
 4. Submit proposal:
    \`\`\`
