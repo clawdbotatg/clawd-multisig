@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { Address, Balance } from "@scaffold-ui/components";
 import type { NextPage } from "next";
+import { TokenBalances } from "~~/components/TokenBalances";
+import { VaultPositions } from "~~/components/VaultPositions";
 import { useScaffoldReadContract } from "~~/hooks/scaffold-eth";
 import { useTargetNetwork } from "~~/hooks/scaffold-eth";
 import { useDeployedContractInfo } from "~~/hooks/scaffold-eth/useDeployedContractInfo";
@@ -87,7 +89,7 @@ const Home: NextPage = () => {
         </div>
 
         {/* Navigation */}
-        <div className="flex justify-center gap-4 mt-8 mb-12">
+        <div className="flex justify-center gap-4 mt-8 mb-8">
           <Link href="/transactions" className="btn btn-primary btn-lg">
             📋 Transactions
           </Link>
@@ -97,6 +99,16 @@ const Home: NextPage = () => {
           <Link href="/skill.md" className="btn btn-outline btn-lg" target="_blank">
             📖 SKILL.md
           </Link>
+        </div>
+
+        {/* Token Balances */}
+        <div className="mt-2">
+          <TokenBalances />
+        </div>
+
+        {/* Vault Positions */}
+        <div className="mt-6 mb-12">
+          <VaultPositions />
         </div>
       </div>
     </div>
