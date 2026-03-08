@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Address } from "@scaffold-ui/components";
 import { useFetchNativeCurrencyPrice } from "@scaffold-ui/hooks";
 import type { NextPage } from "next";
-import { formatEther, hexToBytes } from "viem";
+import { formatEther } from "viem";
 import { useAccount, useWalletClient } from "wagmi";
 import { RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
 import { useScaffoldContract, useScaffoldWriteContract } from "~~/hooks/scaffold-eth";
@@ -122,8 +122,7 @@ const TransactionsPage: NextPage = () => {
         tx.data as `0x${string}`,
       ])) as `0x${string}`;
 
-      // Pass as Uint8Array so wallet treats it as 32 raw bytes (not 66-char hex string)
-      const sig = await writeAndOpen(() => walletClient.signMessage({ message: { raw: hexToBytes(hash) } }));
+      const sig = await writeAndOpen(() => walletClient.signMessage({ message: { raw: hash } }));
 
       // Verify on-chain before storing
       const res = await fetch(`/api/transactions/${tx.id}/sign`, {
